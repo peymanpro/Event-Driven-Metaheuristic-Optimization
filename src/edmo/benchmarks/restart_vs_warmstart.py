@@ -14,15 +14,24 @@ from edmo.domain.problem import Problem
 
 @dataclass(frozen=True, slots=True)
 class RecoveryMetrics:
-    """Per-strategy recovery summary.
+    """Per-strategy recovery summary for one invocation.
 
-    ``initial_total`` is the best total at the first evaluated generation.
-    ``iterations_to_target`` is the first generation index where
-    ``total <= target_total``, or ``None`` if never reached within budget.
-    ``final_diversity`` is the population diversity at the end of the run.
-    ``best_evaluation`` is the real :class:`Evaluation` for the best solution
-    found by this strategy. ``snapshots`` carries the per-generation real
-    telemetry emitted by the optimizer.
+    All fields are scoped to the *current* post-change recovery run, not to
+    the cumulative optimizer state:
+
+    - ``history`` is ``result.history`` (local to the invocation). Index 0 is
+      the initial evaluation of the population used for this run (random for
+      restart, adapted-post-change for warm start). Index k is the best after
+      the k-th new evolution step.
+    - ``snapshots`` is ``result.snapshots`` (also local to the invocation),
+      with the same indexing as ``history``.
+    - ``initial_total`` is ``history[0]``; ``best_total`` is ``min(history)``;
+      ``iterations_to_target`` is the first ``i`` where ``history[i] <= target``
+      counted in this invocation only.
+    - ``best_evaluation`` is the real ``Evaluation`` of the best solution
+      found in this invocation.
+    - ``final_diversity`` is the population diversity at the end of this
+      invocation.
     """
 
     label: str
@@ -65,11 +74,16 @@ class RestartWarmStartResult:
 def _metrics(
     label: str,
     history: tuple[float, ...],
+    snapshots: tuple[GenerationSnapshot, ...],
     target_total: float,
     final_population: tuple[Chromosome, ...],
     best_evaluation: Evaluation,
-    snapshots: tuple[GenerationSnapshot, ...],
 ) -> RecoveryMetrics:
+    if len(history) != len(snapshots):
+        raise ValueError(
+            f"{label}: history and snapshots must have equal length, got "
+            f"{len(history)} and {len(snapshots)}"
+        )
     initial_total = history[0] if history else float("inf")
     best_total = min(history) if history else float("inf")
     iterations_to_target: int | None = None
@@ -109,7 +123,13 @@ def restart_vs_warm_start(
     4. Warm start: adapt the pre-change state and continue on ``problem_after``.
 
     ``target_total`` defaults to the pre-change best total. Both strategies
-    then report the first iteration where they reach or beat that target.
+    then report the first iteration where they reach or beat that target,
+    counted from the post-change initial evaluation (index 0).
+
+    All ``RecoveryMetrics`` fields (history, snapshots, initial_total,
+    best_total, iterations_to_target, final_diversity) are local to the
+    post-change invocation. Cumulative ``GAState`` snapshots/history are not
+    used for recovery metrics.
     """
     cfg = ga_config or GAConfig()
     pre_cfg = (
@@ -138,27 +158,27 @@ def restart_vs_warm_start(
 
     target = pre_best if target_total is None else target_total
 
-    # Restart from scratch.
+    # Restart from scratch on problem_after.
     restart_state, restart_result = run_ga_stateful(problem_after, None, cfg)
     restart_metrics = _metrics(
         "restart",
         restart_result.history,
+        restart_result.snapshots,
         target,
         restart_state.population,
         restart_result.best_evaluation,
-        restart_state.snapshots,
     )
 
-    # Warm start from adapted state.
+    # Warm start from adapted state on problem_after.
     adapted = adapt_state(problem_before, problem_after, pre_state, cfg)
     warm_state, warm_result = run_ga_stateful(problem_after, adapted, cfg)
     warm_metrics = _metrics(
         "warm_start",
         warm_result.history,
+        warm_result.snapshots,
         target,
         warm_state.population,
         warm_result.best_evaluation,
-        warm_state.snapshots,
     )
 
     return RestartWarmStartResult(
