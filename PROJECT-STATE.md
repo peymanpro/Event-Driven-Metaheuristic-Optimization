@@ -12,8 +12,8 @@ Handoff snapshot. Update at the end of every milestone.
 
 ## Current phase
 
-Phase 8 - Parallel Fitness Evaluation (completed).
-Ready to start Phase 9 (Experiment Data Pipeline).
+Phase 9 - Experiment Data Pipeline (completed).
+Ready to start Phase 10 (Final Benchmark & Documentation).
 
 ## Completed
 
@@ -21,20 +21,21 @@ Ready to start Phase 9 (Experiment Data Pipeline).
 - Phase 1 static optimization core
 - Phase 2 genetic algorithm
 - Phase 3 search quality & constraint handling
-- Phase 4 differential evolution + common OptimizerResult
+- Phase 4 differential evolution
 - Phase 5 dynamic optimization
 - Phase 6 stateful / warm-start + restart vs warm-start benchmark
-- Phase 7 event-driven architecture (DomainEvent, bus, transport, Kafka adapter)
-- Phase 8 parallel fitness evaluation:
-  - FitnessJob and FitnessResult value types
-  - WorkerError / JobTimeoutError / JobExecutionError
-  - WorkerConfig (process or thread, max_workers, timeout, retries)
-  - evaluate_job (pure, picklable, error-capturing)
-  - submit_all with retries, order preservation, and per-job timeouts
-  - Pickle support for Resource / Job / Problem / Solution / Schedule
-  - sequential_vs_parallel benchmark with TimingResult and speedup
+- Phase 7 event-driven architecture (bus + Kafka adapter)
+- Phase 8 parallel fitness evaluation + sequential vs parallel benchmark
+- Phase 9 experiment data pipeline:
+  - GenerationMetric and RunRecord (immutable, JSON round-trip)
+  - RunHistory store with experiment/algorithm/problem filters
+  - EventLog append-only JSONL
+  - Analytical dataset (RunRow, GenerationRow, builders)
+  - Parquet export (optional pyarrow extra)
+  - Statistical analysis: summarize, convergence_distribution,
+    runtime_distribution, stability_report
 
-Tests: 292 passing.
+Tests: 327 passing.
 
 ## Local commands
 
@@ -52,6 +53,4 @@ Tests: 292 passing.
 
 ## Open items
 
-- Phase 9 (experiment data pipeline) not started
-- Phase 10 (final benchmark + docs + ADRs) not started
-- Kafka-based workers not added (no justified need yet)
+- Phase 10 (benchmark runner, reproducibility, docs, ADRs) not started
