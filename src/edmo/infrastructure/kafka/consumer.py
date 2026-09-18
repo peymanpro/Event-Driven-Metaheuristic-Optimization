@@ -30,16 +30,19 @@ class KafkaEventConsumer:
 
     Delivery semantics:
 
-    - Kafka transport itself is at-least-once: a message may be redelivered
-      after a crash or rebalance.
-    - This consumer keeps an in-process ``event_id`` filter that drops
-      duplicates observed during the lifetime of this consumer instance.
-    - That filter is not durable: restarting the process loses the set, so a
-      redelivered event can be processed again after restart.
-    - Downstream handlers that must be exactly-once under redelivery must be
-      idempotent themselves or persist dedup state durably. This project does
-      not implement durable dedup; the in-process filter is a best-effort
-      optimization for steady-state operation.
+    - Kafka itself is at-least-once: a message may be redelivered after a
+      crash, rebalance, or an uncommitted offset.
+    - ``poll`` returns the next decoded event without filtering. It does not
+      mark the event as processed; that is the caller's responsibility.
+    - The caller must call :meth:`mark_processed` only after the handler has
+      returned successfully. This is the contract that makes retry work:
+      a handler that raises leaves the event unprocessed, so a redelivery
+      with the same ``event_id`` will be returned again.
+    - Once an event is marked processed, later redeliveries of the same
+      ``event_id`` are filtered *for this consumer instance*. That filter is
+      in-process and not durable: restarting the process forgets it.
+    - This consumer does not claim exactly-once delivery. Handlers that must
+      be exactly-once across restarts must persist their own dedup state.
     """
 
     def __init__(
@@ -47,19 +50,23 @@ class KafkaEventConsumer:
         consumer: KafkaConsumerLike,
         group_id: str,
         *,
-        auto_commit: bool = True,
+        auto_commit: bool = False,
     ) -> None:
         if not group_id:
             raise ValueError("group_id must be non-empty")
         self._consumer = consumer
         self._group_id = group_id
         self._auto_commit = auto_commit
-        self._seen: set[str] = set()
+        self._processed: set[str] = set()
         self._closed = False
 
     @property
     def group_id(self) -> str:
         return self._group_id
+
+    @property
+    def is_closed(self) -> bool:
+        return self._closed
 
     def _decode(self, message: KafkaMessageLike) -> DomainEvent | None:
         if message.value is None:
@@ -68,30 +75,46 @@ class KafkaEventConsumer:
             event = decode_event(message.value)
         except ValueError as exc:
             raise ConsumerError("failed to decode kafka message") from exc
-        key = str(event.event_id)
-        if key in self._seen:
-            return None
-        self._seen.add(key)
         return event
 
     def poll(self, timeout_ms: float = 0.0) -> DomainEvent | None:
+        """Return the next not-yet-processed event, or ``None``.
+
+        Events whose ``event_id`` has already been successfully processed by
+        this consumer instance are skipped. The returned event is not yet
+        considered processed; call :meth:`mark_processed` after the handler
+        succeeds.
+        """
         if self._closed:
             raise ConsumerError("consumer is closed")
         batches = self._consumer.poll(timeout_ms)
         if not batches:
             return None
-        result: DomainEvent | None = None
         for messages in batches.values():
             for message in messages:
                 event = self._decode(message)
-                if event is not None:
-                    result = event
-                    break
-            if result is not None:
-                break
+                if event is None:
+                    continue
+                if str(event.event_id) in self._processed:
+                    continue
+                return event
+        return None
+
+    def mark_processed(self, event: DomainEvent) -> None:
+        """Record that ``event`` was handled successfully.
+
+        Call only after the handler has returned without raising. Subsequent
+        polls that redeliver the same ``event_id`` are filtered. When
+        ``auto_commit`` is enabled, the underlying consumer is committed at
+        this point, which is the only correct time to commit under
+        at-least-once semantics.
+        """
+        key = str(event.event_id)
+        if key in self._processed:
+            return
+        self._processed.add(key)
         if self._auto_commit:
             self._consumer.commit()
-        return result
 
     def stream(self) -> Iterable[DomainEvent]:
         while not self._closed:
@@ -114,12 +137,22 @@ def run_consumer(
 ) -> int:
     """Consume events and invoke ``handler`` for each unique event.
 
-    Returns the number of handler invocations. ``max_events`` bounds the loop
-    so callers (and tests) can stop deterministically.
+    An event is marked as processed only after ``handler`` returns without
+    raising. If the handler raises, the exception propagates and the event is
+    NOT marked, so a subsequent redelivery is returned again, matching
+    at-least-once semantics. Once handled successfully, duplicate redeliveries
+    of the same ``event_id`` are filtered for the lifetime of this consumer
+    instance.
+
+    Returns the number of successful handler invocations.
     """
     count = 0
-    for event in consumer.stream():
-        handler(event)
+    while not consumer.is_closed:
+        event = consumer.poll(timeout_ms=100.0)
+        if event is None:
+            continue
+        handler(event)  # if this raises, event is not marked
+        consumer.mark_processed(event)
         count += 1
         if max_events is not None and count >= max_events:
             break
