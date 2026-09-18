@@ -41,12 +41,24 @@ def test_stateful_run_returns_state() -> None:
     assert result.generations == 5
 
 
-def test_stateful_continue_same_problem_extends_history() -> None:
+def test_stateful_continue_same_problem_has_local_history() -> None:
+    """Warm start returns a history local to the new invocation.
+
+    Under the local-history contract, ``r2.history`` starts with the
+    post-warm-start initial evaluation and continues with new generations;
+    it does not carry over r1's generations.
+    """
     cfg = GAConfig(population_size=10, generations=5, seed=1)
     state, r1 = run_ga_stateful(_problem(), None, cfg)
-    _, r2 = run_ga_stateful(_problem(), state, cfg)
-    assert r2.history[: len(r1.history)] == r1.history
-    assert len(r2.history) > len(r1.history)
+    assert len(r1.history) == 6  # initial + 5 steps
+
+    state2, r2 = run_ga_stateful(_problem(), state, cfg)
+    # Warm start history: 1 (post-warm-start initial) + 5 steps.
+    assert len(r2.history) == 6
+    # Cumulative history on state, however, grows by the new steps.
+    assert len(state2.history) == len(state.history) + 5
+    # The generation must continue, not restart.
+    assert state2.generation == state.generation + 5
 
 
 def test_stateful_mismatched_version_rejected() -> None:

@@ -114,11 +114,23 @@ def run_ga_stateful(
       step has been applied yet.
     - A run of ``N`` evolution steps increments ``generation`` by exactly
       ``N`` (never by the total length of history).
-    - When warm-starting from a state, the inherited population is NOT
-      re-recorded into history; only newly completed generations are appended.
 
-    Real per-generation telemetry is captured in ``GAState.snapshots``
-    (best, mean, worst totals, population diversity, elapsed seconds).
+    Semantics of ``GAResult.history`` and ``GAResult.snapshots``:
+
+    - They are *local to this invocation*, not cumulative across warm starts.
+    - Index 0 is the initial evaluation of the population used for this run:
+      for a fresh run this is the random initial population on ``problem``;
+      for a warm start this is the adapted/repair population evaluated on
+      ``problem`` (the post-change initial).
+    - Index ``k`` for ``k >= 1`` is the best after the ``k``-th new evolution
+      step performed in this invocation.
+
+    ``GAState.history`` and ``GAState.snapshots`` remain cumulative across
+    problem versions for persistence and audit, but they are never used as
+    recovery trajectories by benchmarks.
+
+    Target and termination checks operate only on the local run history, so
+    a warm start cannot falsely terminate because of pre-change history.
     """
     cfg = config or GAConfig()
     rng = Random(cfg.seed) if state is None else state.rng
@@ -146,8 +158,8 @@ def run_ga_stateful(
     if state is None:
         population = [prepare(c) for c in init_population(problem, cfg, rng)]
         generation = 0
-        history: list[float] = []
-        snapshots: list[GenerationSnapshot] = []
+        cumulative_history: list[float] = []
+        cumulative_snapshots: list[GenerationSnapshot] = []
         best: tuple[Chromosome, Evaluation] | None = None
         problem_version = problem.version
     else:
@@ -158,61 +170,91 @@ def run_ga_stateful(
             )
         population = [prepare(c) for c in state.population]
         generation = state.generation
-        history = list(state.history)
-        snapshots = list(state.snapshots)
+        cumulative_history = list(state.history)
+        cumulative_snapshots = list(state.snapshots)
         best = (state.best_chromosome, state.best_evaluation)
         problem_version = state.problem_version
+
+    local_history: list[float] = []
+    local_snapshots: list[GenerationSnapshot] = []
 
     def record(
         pop: list[Chromosome],
         current_generation: int,
         elapsed: float,
+        *,
+        to_cumulative: bool,
     ) -> list[tuple[Chromosome, Evaluation]]:
         nonlocal best
         scored = [(c, evaluate_chromosome(c)) for c in pop]
         scored.sort(key=lambda ce: ce[1].total)
         top_c, top_e = scored[0]
-        history.append(top_e.total)
+        totals = [e.total for _, e in scored]
+        snap = snapshot_from_population(current_generation, pop, totals, elapsed)
+        local_history.append(top_e.total)
+        local_snapshots.append(snap)
+        if to_cumulative:
+            cumulative_history.append(top_e.total)
+            cumulative_snapshots.append(snap)
         if best is None or top_e.total < best[1].total:
             best = (top_c, top_e)
-        totals = [e.total for _, e in scored]
-        snapshots.append(
-            snapshot_from_population(current_generation, pop, totals, elapsed)
-        )
         return scored
 
     if state is None:
         t0 = perf_counter()
-        scored = record(population, generation, perf_counter() - t0)
+        scored = record(
+            population, generation, perf_counter() - t0, to_cumulative=True
+        )
     else:
-        scored = [(c, evaluate_chromosome(c)) for c in population]
-        scored.sort(key=lambda ce: ce[1].total)
+        t0 = perf_counter()
+        # Warm start: the inherited population is evaluated on the new problem
+        # and recorded as the local run's generation-0 entry. It is not
+        # appended to the cumulative state history because the cumulative
+        # history belongs to the previous problem version.
+        scored = record(
+            population, generation, perf_counter() - t0, to_cumulative=False
+        )
 
     policy: TerminationPolicy | None = cfg.termination
     stopped_reason = "max_generations"
     new_generations = 0
-    for _ in range(cfg.generations):
-        if target_total is not None and history[-1] <= target_total:
-            stopped_reason = "target_reached"
-            break
+
+    def check_stop() -> str | None:
+        if target_total is not None and local_history and local_history[-1] <= target_total:
+            return "target_reached"
         if policy is not None:
-            decision = policy.decide(history)
+            decision = policy.decide(local_history)
             if decision.should_stop:
-                stopped_reason = decision.reason
+                return decision.reason
+        return None
+
+    reason = check_stop()
+    if reason is not None:
+        stopped_reason = reason
+    else:
+        for _ in range(cfg.generations):
+            t0 = perf_counter()
+            fitness = {c: e.total for c, e in scored}
+            new_population: list[Chromosome] = [c for c, _ in scored[: cfg.elite_count]]
+            while len(new_population) < cfg.population_size:
+                pa = tournament_selection(population, fitness, cfg.tournament_size, rng)
+                pb = tournament_selection(population, fitness, cfg.tournament_size, rng)
+                child = uniform_crossover(pa, pb, cfg.crossover_rate, rng)
+                child = mutate(child, len(problem.resources), cfg, rng)
+                child = prepare(child)
+                new_population.append(child)
+            population = new_population[: cfg.population_size]
+            new_generations += 1
+            scored = record(
+                population,
+                generation + new_generations,
+                perf_counter() - t0,
+                to_cumulative=True,
+            )
+            reason = check_stop()
+            if reason is not None:
+                stopped_reason = reason
                 break
-        t0 = perf_counter()
-        fitness = {c: e.total for c, e in scored}
-        new_population: list[Chromosome] = [c for c, _ in scored[: cfg.elite_count]]
-        while len(new_population) < cfg.population_size:
-            pa = tournament_selection(population, fitness, cfg.tournament_size, rng)
-            pb = tournament_selection(population, fitness, cfg.tournament_size, rng)
-            child = uniform_crossover(pa, pb, cfg.crossover_rate, rng)
-            child = mutate(child, len(problem.resources), cfg, rng)
-            child = prepare(child)
-            new_population.append(child)
-        population = new_population[: cfg.population_size]
-        new_generations += 1
-        scored = record(population, generation + new_generations, perf_counter() - t0)
 
     assert best is not None
     best_c, best_e = best
@@ -221,10 +263,10 @@ def run_ga_stateful(
         best_chromosome=best_c,
         best_evaluation=best_e,
         generation=generation + new_generations,
-        history=tuple(history),
+        history=tuple(cumulative_history),
         problem_version=problem_version,
         rng=rng,
-        snapshots=tuple(snapshots),
+        snapshots=tuple(cumulative_snapshots),
     )
     result = GAResult(
         best_chromosome=best_c,
@@ -233,7 +275,8 @@ def run_ga_stateful(
         generations=new_generations,
         population_size=cfg.population_size,
         seed=cfg.seed,
-        history=tuple(history),
+        history=tuple(local_history),
         stopped_reason=stopped_reason,
+        snapshots=tuple(local_snapshots),
     )
     return new_state, result
