@@ -12,26 +12,24 @@ Handoff snapshot. Update at the end of every milestone.
 
 ## Current phase
 
-Phase 4 - Differential Evolution (completed).
-Ready to start Phase 5 (Dynamic Optimization: f_t, g_{i,t}).
+Phase 5 - Dynamic Optimization (completed).
+Ready to start Phase 6 (Stateful / Warm-Start Optimization).
 
 ## Completed
 
 - Phase 0 foundation (packaging, pytest, ruff, mypy, CI, docs)
-- Phase 1 static optimization core (problem, solution, evaluation, penalty,
-  random search baseline)
-- Phase 2 genetic algorithm (chromosome, operators, elitism, seed-based
-  reproducibility)
-- Phase 3 search quality & constraint handling (repair operators, diversity,
-  convergence, stagnation, termination policies, GA vs Random Search benchmark)
-- Phase 4 differential evolution:
-  - Vector coding with VectorBounds and decode/clip
-  - DE/rand/1/bin operators
-  - Optimizer with repair and termination reuse
-  - Common OptimizerResult interface shared by GA/DE
-  - Reproducible GA vs DE benchmark
+- Phase 1 static optimization core
+- Phase 2 genetic algorithm
+- Phase 3 search quality & constraint handling
+- Phase 4 differential evolution + common OptimizerResult interface
+- Phase 5 dynamic optimization:
+  - Domain change events (add/remove job, deadline, weight, add/remove
+    resource, capacity, speed)
+  - apply_change / apply_changes with version bumping and no mutation
+  - Structural diff via analyze_change producing ChangeImpact
+  - Structural vs parametric change classification
 
-Tests: 173 passing.
+Tests: 203 passing.
 
 ## Local commands
 
@@ -49,6 +47,5 @@ Tests: 173 passing.
 
 ## Open items
 
-- Phase 5 (Dynamic optimization f_t) not started
+- Phase 6 (state, warm-start vs restart benchmark) not started
 - No events, no Kafka, no parallel execution yet
-- No warm-start or restart strategies yet
