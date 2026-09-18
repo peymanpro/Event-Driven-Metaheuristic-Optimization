@@ -12,38 +12,37 @@ Handoff snapshot. Update at the end of every milestone.
 
 ## Current phase
 
-Review & hardening pass (post-phase-10). All issues from the independent
-review are fixed and verified. Project status: COMPLETE.
+Review pass 2 (post-review hardening). Both remaining issues fixed and
+verified with regression tests. Project status: COMPLETE.
 
-## Review fixes (in order)
+## Review pass 2 fixes
 
-1. Problem generator produces feasible instances with meaningful capacity
-   constraints; `known_feasible_solution` proves feasibility with a canonical
-   round-robin schedule; tested across 20 seeds.
-2. `GAState.generation` semantics are explicit: the number of the last
-   completed generation, incremented by exactly the number of new evolution
-   steps across warm starts. No double counting; warm start does not
-   re-record the inherited population in history.
-3. `RecoveryMetrics` and `RunRecord` carry the real `Evaluation` produced by
-   the optimizer. No synthesized Evaluation objects remain on the core path.
-4. GA records real per-generation telemetry: best, mean, worst totals,
-   population diversity, elapsed seconds. Invariant
-   `best <= mean <= worst` is enforced.
-5. `OptimizationCoordinator` wires dynamic events end-to-end:
-   `ProblemChangeRequested` -> apply change -> adapt state -> warm start
-   optimization -> `OptimizationCompleted`. In-memory path is fully tested.
-6. `EventSubscriber` is split into `PollingSubscriber` (Kafka) and
-   `PushSubscriber` (in-memory bus). Runtime protocol tests verify each
-   implementation matches its contract.
-7. Documentation states Kafka semantics accurately: at-least-once transport,
-   in-process duplicate filtering only, no exactly-once claim.
-8. `repeated_recovery_benchmark` aggregates restart vs warm-start across
-   multiple seeds with success rate, median/mean/stdev iterations-to-target,
-   best/worst recovery, and feasible fraction.
-9. `canonical_resource_scheduling` provides a hand-readable benchmark
-   scenario with a proven feasible solution and a dynamic change set.
+1. Warm-start recovery history is now local to the current run.
+   `GAState.history` remains cumulative for persistence/audit;
+   `GAResult.history` is local: index 0 is the post-change initial
+   evaluation, index k is after the k-th new evolution step. Target checks
+   and termination policies operate on the local history, so a warm start
+   cannot be falsely terminated by pre-change history. Recovery metrics
+   (`initial_total`, `best_total`, `iterations_to_target`,
+   `iterations_saved`, `warm_start_initial_advantage`) are computed only
+   from the local post-change run.
+2. `KafkaEventConsumer` no longer marks events as seen inside `poll`.
+   `poll()` returns the next event unmarked; `mark_processed(event)` must
+   be called after handler success. `run_consumer` does this in the correct
+   order, so a failed handler leaves the event unmarked and a redelivery is
+   returned again. Successful processing dedups later redeliveries of the
+   same `event_id` for the lifetime of the consumer instance.
 
-Tests: 378 passing.
+## Earlier review fixes (still in place)
+
+- Feasible scheduling problem generation with meaningful capacities
+- GA generation accounting across warm starts
+- Real `Evaluation` propagation and real generation telemetry
+- End-to-end event-driven coordinator
+- `PollingSubscriber` / `PushSubscriber` protocol split
+- Kafka at-least-once documented without exactly-once overclaim
+- Repeated-seed research benchmark
+- Canonical scheduling scenario
 
 ## Local commands
 
@@ -55,12 +54,10 @@ Tests: 378 passing.
 ## Answer to the central research question
 
 The empirical answer comes from `repeated_recovery_benchmark`, which runs
-restart and warm-start across many seeds and reports per-strategy statistics.
-The benchmark is descriptive, not prescriptive: the README does not claim
-"warm start always wins". Interpretation is left to whoever reads the
-aggregated metrics.
+restart and warm-start across many seeds and reports per-strategy
+aggregation. The benchmark is descriptive: the project does not claim
+"warm start always wins".
 
 ## Open items
 
-- None required for completion. Optional future work remains documented in
-  ROADMAP.md and the ADRs.
+- None required for completion.
