@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from random import Random
+from time import perf_counter
 
 from edmo.algorithms.genetic.chromosome import Chromosome
 from edmo.algorithms.genetic.config import GAConfig
+from edmo.algorithms.genetic.metrics import GenerationSnapshot, snapshot_from_population
 from edmo.algorithms.genetic.operators import (
     init_population,
     mutate,
@@ -27,6 +29,7 @@ class GAResult:
     seed: int | None
     history: tuple[float, ...]
     stopped_reason: str
+    snapshots: tuple[GenerationSnapshot, ...] = ()
 
 
 def run_ga(
@@ -37,9 +40,12 @@ def run_ga(
     """Run the genetic algorithm and return the best individual found.
 
     ``history[i]`` is the best total score in generation ``i`` (0-based),
-    including the initial random population as generation 0. Termination is
-    controlled by ``config.termination`` when present, otherwise the loop
-    runs for ``config.generations`` generations.
+    including the initial random population as generation 0. ``generations``
+    is the number of completed evolution steps, which may be smaller than
+    ``config.generations`` when a termination policy stops the loop early.
+
+    ``snapshots`` carries real per-generation telemetry: best, mean, worst
+    totals, population diversity and elapsed seconds.
     """
     cfg = config or GAConfig()
     rng = Random(cfg.seed)
@@ -65,9 +71,15 @@ def run_ga(
 
     best: tuple[Chromosome, Evaluation] | None = None
     history: list[float] = []
+    snapshots: list[GenerationSnapshot] = []
+    completed_generations = 0
     stopped_reason = "max_generations"
 
-    def record(population: list[Chromosome]) -> list[tuple[Chromosome, Evaluation]]:
+    def record(
+        population: list[Chromosome],
+        generation: int,
+        elapsed: float,
+    ) -> list[tuple[Chromosome, Evaluation]]:
         nonlocal best
         scored: list[tuple[Chromosome, Evaluation]] = [
             (c, evaluate_chromosome(c)) for c in population
@@ -77,10 +89,15 @@ def run_ga(
         history.append(top_e.total)
         if best is None or top_e.total < best[1].total:
             best = (top_c, top_e)
+        totals = [e.total for _, e in scored]
+        snapshots.append(
+            snapshot_from_population(generation, population, totals, elapsed)
+        )
         return scored
 
+    t0 = perf_counter()
     population = [prepare(c) for c in init_population(problem, cfg, rng)]
-    scored = record(population)
+    scored = record(population, 0, perf_counter() - t0)
 
     policy = cfg.termination
     for _ in range(cfg.generations):
@@ -89,6 +106,7 @@ def run_ga(
             if decision.should_stop:
                 stopped_reason = decision.reason
                 break
+        t0 = perf_counter()
         fitness = {c: e.total for c, e in scored}
         new_population: list[Chromosome] = [c for c, _ in scored[: cfg.elite_count]]
         while len(new_population) < cfg.population_size:
@@ -99,7 +117,8 @@ def run_ga(
             child = prepare(child)
             new_population.append(child)
         population = new_population[: cfg.population_size]
-        scored = record(population)
+        completed_generations += 1
+        scored = record(population, completed_generations, perf_counter() - t0)
 
     assert best is not None
     best_c, best_e = best
@@ -107,9 +126,10 @@ def run_ga(
         best_chromosome=best_c,
         best_solution=best_c.to_solution(problem),
         best_evaluation=best_e,
-        generations=cfg.generations,
+        generations=completed_generations,
         population_size=cfg.population_size,
         seed=cfg.seed,
         history=tuple(history),
         stopped_reason=stopped_reason,
+        snapshots=tuple(snapshots),
     )

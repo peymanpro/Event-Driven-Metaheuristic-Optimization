@@ -1,8 +1,42 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from edmo.algorithms.genetic.chromosome import Chromosome
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationSnapshot:
+    """Real telemetry for a single completed generation.
+
+    In a minimization scenario the following invariant holds::
+
+        best_total <= mean_total <= worst_total
+
+    ``population_diversity`` is in ``[0, 1]`` and ``elapsed_seconds`` is the
+    wall time spent evaluating and evolving into this generation.
+    """
+
+    generation: int
+    best_total: float
+    mean_total: float
+    worst_total: float
+    population_diversity: float
+    elapsed_seconds: float
+
+    def __post_init__(self) -> None:
+        if self.generation < 0:
+            raise ValueError("generation must be >= 0")
+        if not self.best_total <= self.mean_total <= self.worst_total:
+            raise ValueError(
+                "expected best_total <= mean_total <= worst_total, got "
+                f"{self.best_total} / {self.mean_total} / {self.worst_total}"
+            )
+        if not 0.0 <= self.population_diversity <= 1.0:
+            raise ValueError("population_diversity must be in [0, 1]")
+        if self.elapsed_seconds < 0.0:
+            raise ValueError("elapsed_seconds must be >= 0")
 
 
 def population_diversity(population: Sequence[Chromosome]) -> float:
@@ -43,6 +77,30 @@ def population_diversity(population: Sequence[Chromosome]) -> float:
 
     all_scores = resource_scores + time_scores
     return sum(all_scores) / len(all_scores)
+
+
+def snapshot_from_population(
+    generation: int,
+    population: Sequence[Chromosome],
+    totals: Sequence[float],
+    elapsed_seconds: float,
+) -> GenerationSnapshot:
+    """Build a :class:`GenerationSnapshot` from evaluated population totals."""
+    if len(population) != len(totals):
+        raise ValueError("population and totals must have equal length")
+    if not totals:
+        raise ValueError("totals must not be empty")
+    best = min(totals)
+    worst = max(totals)
+    mean = sum(totals) / len(totals)
+    return GenerationSnapshot(
+        generation=generation,
+        best_total=best,
+        mean_total=mean,
+        worst_total=worst,
+        population_diversity=population_diversity(list(population)),
+        elapsed_seconds=elapsed_seconds,
+    )
 
 
 def convergence_span(history: Sequence[float]) -> float:

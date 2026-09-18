@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from random import Random
+from time import perf_counter
 
 from edmo.algorithms.genetic.chromosome import Chromosome
 from edmo.algorithms.genetic.config import GAConfig
+from edmo.algorithms.genetic.metrics import GenerationSnapshot, snapshot_from_population
 from edmo.algorithms.genetic.operators import (
     init_population,
     mutate,
@@ -92,6 +94,7 @@ def adapt_state(
         history=state.history,
         problem_version=new_problem.version,
         rng=state.rng,
+        snapshots=state.snapshots,
     )
 
 
@@ -113,15 +116,9 @@ def run_ga_stateful(
       ``N`` (never by the total length of history).
     - When warm-starting from a state, the inherited population is NOT
       re-recorded into history; only newly completed generations are appended.
-    - ``GAResult.generations`` reports the number of evolution steps performed
-      in this call (not the size of the cumulative history).
 
-    A fresh run is triggered when ``state`` is ``None``. If ``state`` is given
-    but its ``problem_version`` differs from ``problem.version``, a
-    ``ValueError`` is raised; callers must run :func:`adapt_state` first.
-
-    ``target_total`` stops evolution early once the best total reaches it,
-    which is used by recovery benchmarks.
+    Real per-generation telemetry is captured in ``GAState.snapshots``
+    (best, mean, worst totals, population diversity, elapsed seconds).
     """
     cfg = config or GAConfig()
     rng = Random(cfg.seed) if state is None else state.rng
@@ -150,6 +147,7 @@ def run_ga_stateful(
         population = [prepare(c) for c in init_population(problem, cfg, rng)]
         generation = 0
         history: list[float] = []
+        snapshots: list[GenerationSnapshot] = []
         best: tuple[Chromosome, Evaluation] | None = None
         problem_version = problem.version
     else:
@@ -161,10 +159,15 @@ def run_ga_stateful(
         population = [prepare(c) for c in state.population]
         generation = state.generation
         history = list(state.history)
+        snapshots = list(state.snapshots)
         best = (state.best_chromosome, state.best_evaluation)
         problem_version = state.problem_version
 
-    def record(pop: list[Chromosome]) -> list[tuple[Chromosome, Evaluation]]:
+    def record(
+        pop: list[Chromosome],
+        current_generation: int,
+        elapsed: float,
+    ) -> list[tuple[Chromosome, Evaluation]]:
         nonlocal best
         scored = [(c, evaluate_chromosome(c)) for c in pop]
         scored.sort(key=lambda ce: ce[1].total)
@@ -172,15 +175,16 @@ def run_ga_stateful(
         history.append(top_e.total)
         if best is None or top_e.total < best[1].total:
             best = (top_c, top_e)
+        totals = [e.total for _, e in scored]
+        snapshots.append(
+            snapshot_from_population(current_generation, pop, totals, elapsed)
+        )
         return scored
 
     if state is None:
-        # Fresh run: the initial population is generation 0 and must be
-        # recorded exactly once.
-        scored = record(population)
+        t0 = perf_counter()
+        scored = record(population, generation, perf_counter() - t0)
     else:
-        # Warm start: the inherited population already has an entry in
-        # history, so we only score it without recording a duplicate.
         scored = [(c, evaluate_chromosome(c)) for c in population]
         scored.sort(key=lambda ce: ce[1].total)
 
@@ -196,6 +200,7 @@ def run_ga_stateful(
             if decision.should_stop:
                 stopped_reason = decision.reason
                 break
+        t0 = perf_counter()
         fitness = {c: e.total for c, e in scored}
         new_population: list[Chromosome] = [c for c, _ in scored[: cfg.elite_count]]
         while len(new_population) < cfg.population_size:
@@ -206,8 +211,8 @@ def run_ga_stateful(
             child = prepare(child)
             new_population.append(child)
         population = new_population[: cfg.population_size]
-        scored = record(population)
         new_generations += 1
+        scored = record(population, generation + new_generations, perf_counter() - t0)
 
     assert best is not None
     best_c, best_e = best
@@ -219,6 +224,7 @@ def run_ga_stateful(
         history=tuple(history),
         problem_version=problem_version,
         rng=rng,
+        snapshots=tuple(snapshots),
     )
     result = GAResult(
         best_chromosome=best_c,

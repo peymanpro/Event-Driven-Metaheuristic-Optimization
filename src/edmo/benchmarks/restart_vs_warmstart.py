@@ -4,9 +4,10 @@ from dataclasses import dataclass
 
 from edmo.algorithms.genetic.chromosome import Chromosome
 from edmo.algorithms.genetic.config import GAConfig
-from edmo.algorithms.genetic.metrics import population_diversity
+from edmo.algorithms.genetic.metrics import GenerationSnapshot, population_diversity
 from edmo.algorithms.genetic.stateful import adapt_state, run_ga_stateful
 from edmo.domain.change import ProblemChange, apply_changes
+from edmo.domain.evaluation import Evaluation
 from edmo.domain.impact import ChangeImpact, analyze_change
 from edmo.domain.problem import Problem
 
@@ -19,6 +20,9 @@ class RecoveryMetrics:
     ``iterations_to_target`` is the first generation index where
     ``total <= target_total``, or ``None`` if never reached within budget.
     ``final_diversity`` is the population diversity at the end of the run.
+    ``best_evaluation`` is the real :class:`Evaluation` for the best solution
+    found by this strategy. ``snapshots`` carries the per-generation real
+    telemetry emitted by the optimizer.
     """
 
     label: str
@@ -29,6 +33,8 @@ class RecoveryMetrics:
     iterations_to_target: int | None
     final_diversity: float
     history: tuple[float, ...]
+    best_evaluation: Evaluation
+    snapshots: tuple[GenerationSnapshot, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +67,8 @@ def _metrics(
     history: tuple[float, ...],
     target_total: float,
     final_population: tuple[Chromosome, ...],
+    best_evaluation: Evaluation,
+    snapshots: tuple[GenerationSnapshot, ...],
 ) -> RecoveryMetrics:
     initial_total = history[0] if history else float("inf")
     best_total = min(history) if history else float("inf")
@@ -79,6 +87,8 @@ def _metrics(
         iterations_to_target=iterations_to_target,
         final_diversity=diversity,
         history=history,
+        best_evaluation=best_evaluation,
+        snapshots=snapshots,
     )
 
 
@@ -135,16 +145,20 @@ def restart_vs_warm_start(
         restart_result.history,
         target,
         restart_state.population,
+        restart_result.best_evaluation,
+        restart_state.snapshots,
     )
 
     # Warm start from adapted state.
     adapted = adapt_state(problem_before, problem_after, pre_state, cfg)
-    _warm_state, warm_result = run_ga_stateful(problem_after, adapted, cfg)
+    warm_state, warm_result = run_ga_stateful(problem_after, adapted, cfg)
     warm_metrics = _metrics(
         "warm_start",
         warm_result.history,
         target,
-        _warm_state.population,
+        warm_state.population,
+        warm_result.best_evaluation,
+        warm_state.snapshots,
     )
 
     return RestartWarmStartResult(

@@ -10,7 +10,10 @@ from edmo.algorithms.differential_evolution.config import DEConfig
 from edmo.algorithms.differential_evolution.optimizer import DEResult, run_de
 from edmo.algorithms.genetic.chromosome import Chromosome
 from edmo.algorithms.genetic.config import GAConfig
-from edmo.algorithms.genetic.metrics import population_diversity
+from edmo.algorithms.genetic.metrics import (
+    GenerationSnapshot,
+    population_diversity,
+)
 from edmo.algorithms.genetic.optimizer import GAResult, run_ga
 from edmo.algorithms.random_search import (
     RandomSearchConfig,
@@ -31,6 +34,7 @@ class _RunSummary:
     iterations: int
     stopped_reason: str
     seed: int | None
+    snapshots: tuple[GenerationSnapshot, ...] = ()
 
 
 def _summarize_ga(result: GAResult) -> _RunSummary:
@@ -40,6 +44,7 @@ def _summarize_ga(result: GAResult) -> _RunSummary:
         iterations=result.generations,
         stopped_reason=result.stopped_reason,
         seed=result.seed,
+        snapshots=result.snapshots,
     )
 
 
@@ -64,7 +69,13 @@ def _summarize_random(result: RandomSearchResult) -> _RunSummary:
 
 
 def _metrics_from_history(history: tuple[float, ...]) -> tuple[GenerationMetric, ...]:
-    """Fallback telemetry when only the best-so-far history is available."""
+    """Best-so-far telemetry for optimizers without a snapshot stream.
+
+    Used only when the optimizer does not emit per-generation population
+    snapshots (e.g. Random Search, DE). ``mean_total`` and ``worst_total``
+    are set to ``best_total`` and diversity to 0.0 which is semantically
+    consistent: only the best-so-far trajectory is known for these algorithms.
+    """
     return tuple(
         GenerationMetric(
             generation=i,
@@ -75,6 +86,29 @@ def _metrics_from_history(history: tuple[float, ...]) -> tuple[GenerationMetric,
             elapsed_seconds=0.0,
         )
         for i, value in enumerate(history)
+    )
+
+
+def _metrics_from_snapshots(
+    snapshots: tuple[GenerationSnapshot, ...],
+    history: tuple[float, ...],
+) -> tuple[GenerationMetric, ...]:
+    """Real telemetry from the optimizer's per-generation snapshots.
+
+    Falls back to ``_metrics_from_history`` when no snapshots are available.
+    """
+    if not snapshots:
+        return _metrics_from_history(history)
+    return tuple(
+        GenerationMetric(
+            generation=s.generation,
+            best_total=s.best_total,
+            mean_total=s.mean_total,
+            worst_total=s.worst_total,
+            population_diversity=s.population_diversity,
+            elapsed_seconds=s.elapsed_seconds,
+        )
+        for s in snapshots
     )
 
 
@@ -99,7 +133,7 @@ def _record(
         feasible=summary.best_evaluation.feasible,
         iterations=summary.iterations,
         stopped_reason=summary.stopped_reason,
-        metrics=_metrics_from_history(summary.history),
+        metrics=_metrics_from_snapshots(summary.snapshots, summary.history),
     )
 
 
@@ -174,7 +208,12 @@ def run_dynamic_benchmark(
     ga_config: GAConfig,
     experiment_id: str,
 ) -> DynamicBenchmarkResult:
-    """Run the restart vs warm-start benchmark and capture RunRecords."""
+    """Run the restart vs warm-start benchmark and capture RunRecords.
+
+    Both strategies' :class:`RunRecord` values carry the real
+    :class:`Evaluation` produced by the optimizer; feasibility is propagated
+    truthfully rather than being assumed.
+    """
     result = restart_vs_warm_start(problem_before, changes, ga_config)
 
     now = datetime.now(tz=UTC)
@@ -183,9 +222,7 @@ def run_dynamic_benchmark(
         "ga_restart",
         result.problem_after,
         _RunSummary(
-            best_evaluation=_evaluate_best(
-                result.problem_after, result.restart.best_total
-            ),
+            best_evaluation=result.restart.best_evaluation,
             history=result.restart.history,
             iterations=(
                 result.restart.iterations_to_target
@@ -196,6 +233,7 @@ def run_dynamic_benchmark(
                 "target_reached" if result.restart.reached_target else "budget"
             ),
             seed=ga_config.seed,
+            snapshots=result.restart.snapshots,
         ),
         now,
         now,
@@ -205,9 +243,7 @@ def run_dynamic_benchmark(
         "ga_warm_start",
         result.problem_after,
         _RunSummary(
-            best_evaluation=_evaluate_best(
-                result.problem_after, result.warm_start.best_total
-            ),
+            best_evaluation=result.warm_start.best_evaluation,
             history=result.warm_start.history,
             iterations=(
                 result.warm_start.iterations_to_target
@@ -218,6 +254,7 @@ def run_dynamic_benchmark(
                 "target_reached" if result.warm_start.reached_target else "budget"
             ),
             seed=ga_config.seed,
+            snapshots=result.warm_start.snapshots,
         ),
         now,
         now,
@@ -229,26 +266,6 @@ def run_dynamic_benchmark(
         warm_start=warm_rec,
         iterations_saved=result.iterations_saved,
         target_total=result.target_total,
-    )
-
-
-def _evaluate_best(problem: Problem, best_total: float) -> Evaluation:
-    """Construct a minimal :class:`Evaluation` from a known best total.
-
-    The dynamic benchmark only exposes the best total per strategy; keeping
-    the full evaluation from the inner run would require threading it through
-    the benchmark API. This placeholder preserves the invariant that
-    ``best_total == objective + penalty`` with zero penalty when feasible.
-    """
-    from edmo.domain.evaluation import Evaluation, Schedule
-
-    return Evaluation(
-        objective=best_total,
-        penalty=0.0,
-        total=best_total,
-        feasible=True,
-        violations=(),
-        schedule=Schedule(),
     )
 
 

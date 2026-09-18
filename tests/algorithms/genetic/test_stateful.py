@@ -200,3 +200,49 @@ def test_warm_start_zero_generations_preserves_generation() -> None:
     assert state2.generation == 3
     assert result2.generations == 0
     assert len(state2.history) == len(state.history)
+
+
+def test_snapshots_have_valid_ordering_invariants() -> None:
+    cfg = GAConfig(population_size=15, generations=6, seed=5)
+    state, _ = run_ga_stateful(_problem(), None, cfg)
+    assert len(state.snapshots) == len(state.history)
+    for snap in state.snapshots:
+        assert snap.best_total <= snap.mean_total <= snap.worst_total
+        assert 0.0 <= snap.population_diversity <= 1.0
+
+
+def test_snapshots_elapsed_seconds_not_all_zero() -> None:
+    cfg = GAConfig(population_size=20, generations=5, seed=5)
+    state, _ = run_ga_stateful(_problem(), None, cfg)
+    # At least one generation must have recorded a measurable nonzero time.
+    assert any(s.elapsed_seconds > 0.0 for s in state.snapshots)
+
+
+def test_snapshots_diversity_varies_with_population() -> None:
+    """Population diversity must be a function of the actual population."""
+    cfg = GAConfig(population_size=20, generations=8, seed=5)
+    state, _ = run_ga_stateful(_problem(), None, cfg)
+    diversities = {round(s.population_diversity, 9) for s in state.snapshots}
+    # A meaningful population should not have identical diversity at every
+    # generation. Anything else implies a placeholder constant.
+    assert len(diversities) > 1
+
+
+def test_snapshots_mean_and_worst_differ_from_best() -> None:
+    """Placeholder telemetry sets mean = worst = best; real telemetry does not."""
+    cfg = GAConfig(population_size=25, generations=5, seed=5)
+    state, _ = run_ga_stateful(_problem(), None, cfg)
+    distinct_pairs = {
+        (round(s.best_total, 9), round(s.mean_total, 9), round(s.worst_total, 9))
+        for s in state.snapshots
+    }
+    assert any(b != m or m != w for b, m, w in distinct_pairs)
+
+
+def test_warm_start_preserves_snapshots_history_alignment() -> None:
+    cfg = GAConfig(population_size=10, generations=4, seed=7)
+    state, _ = run_ga_stateful(_problem(), None, cfg)
+    state2, _ = run_ga_stateful(_problem(), state, cfg)
+    assert len(state2.snapshots) == len(state2.history)
+    # Warm start appends exactly four more snapshots.
+    assert len(state2.snapshots) == len(state.snapshots) + 4
