@@ -55,7 +55,8 @@ Detailed description in `docs/ARCHITECTURE.md`.
 
 - `compare_ga_vs_random` - GA vs Random Search on random problems.
 - `compare_ga_vs_de` - GA vs DE on random problems.
-- `restart_vs_warm_start` - recovery after a dynamic problem change.
+- `restart_vs_warm_start` - recovery after a dynamic problem change,
+  reported over the post-change run only.
 - `repeated_recovery_benchmark` - restart vs warm-start across multiple
   seeds, with success rate, median/mean/stdev of iterations-to-target,
   best/worst recovery, and feasible fraction per strategy.
@@ -77,12 +78,16 @@ transport-agnostic. Kafka is used as durable infrastructure for two topics
 (`optimization-events`, `optimization-results`). Internal optimizer steps
 are never turned into messages. See ADR-0001 and ADR-0002.
 
-Delivery semantics: Kafka is at-least-once, and the consumer applies an
-in-process `event_id` filter that drops duplicates observed during the
-lifetime of the current consumer instance. That filter is not durable, so a
-message redelivered after a process restart can be processed again. Handlers
-that must be safe under redelivery after restart are responsible for their
-own idempotency. The same caveat applies to the in-memory bus.
+Delivery semantics: Kafka is at-least-once. `KafkaEventConsumer.poll()`
+returns the next not-yet-processed event without marking it as processed.
+The caller must invoke `mark_processed(event)` only after the handler has
+returned successfully, e.g. via `run_consumer`. If the handler raises, the
+event is not marked and a redelivery with the same `event_id` is returned
+again. Once marked, later redeliveries of the same `event_id` are filtered
+for the lifetime of that consumer instance. That filter is not durable:
+restarting the process forgets it, so handlers that must be exactly-once
+across restarts need their own durable dedup state. The in-memory bus
+follows the same in-process, best-effort dedup model.
 
 ## Dynamic optimization and warm start
 
@@ -92,6 +97,16 @@ and removed resources trigger re-sampling of affected genes. `adapt_state`
 plus `run_ga_stateful` then continue the search from the adapted state,
 incrementing `generation` by exactly the number of new evolution steps (no
 double counting across successive warm starts).
+
+`GAState.history` and `GAState.snapshots` are cumulative across problem
+versions for persistence and audit. `GAResult.history` and
+`GAResult.snapshots` are local to the current invocation: index 0 is the
+initial evaluation of the population used in this run (random population
+for a fresh run, adapted population evaluated on the new problem for a
+warm start), and index k is the best after the k-th new evolution step.
+Target checks, termination policies, and recovery metrics all operate on
+the local run history only, so a warm start cannot be falsely terminated
+by pre-change history.
 
 `OptimizationCoordinator` in `src/edmo/application/` wires this path to the
 event bus: a `ProblemChangeRequested` event is consumed, the change is
