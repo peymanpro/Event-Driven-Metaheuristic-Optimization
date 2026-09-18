@@ -20,6 +20,9 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
 ]
+kafka = [
+    "kafka-python>=2.0",
+]
 
 [project.urls]
 Repository = "https://github.com/peymanpro/Event-Driven-Metaheuristic-Optimization"
