@@ -11,6 +11,7 @@ from edmo.algorithms.genetic.operators import (
     tournament_selection,
     uniform_crossover,
 )
+from edmo.algorithms.genetic.repair import repair
 from edmo.domain.evaluation import Evaluation, PenaltyWeights, evaluate
 from edmo.domain.problem import Problem
 from edmo.domain.solution import Solution
@@ -25,6 +26,7 @@ class GAResult:
     population_size: int
     seed: int | None
     history: tuple[float, ...]
+    stopped_reason: str
 
 
 def run_ga(
@@ -35,7 +37,9 @@ def run_ga(
     """Run the genetic algorithm and return the best individual found.
 
     ``history[i]`` is the best total score in generation ``i`` (0-based),
-    including the initial random population as generation 0.
+    including the initial random population as generation 0. Termination is
+    controlled by ``config.termination`` when present, otherwise the loop
+    runs for ``config.generations`` generations.
     """
     cfg = config or GAConfig()
     rng = Random(cfg.seed)
@@ -54,8 +58,14 @@ def run_ga(
         cache[chromosome] = result
         return result
 
+    def prepare(chromosome: Chromosome) -> Chromosome:
+        if not cfg.apply_repair:
+            return chromosome
+        return repair(problem, chromosome)
+
     best: tuple[Chromosome, Evaluation] | None = None
     history: list[float] = []
+    stopped_reason = "max_generations"
 
     def record(population: list[Chromosome]) -> list[tuple[Chromosome, Evaluation]]:
         nonlocal best
@@ -69,19 +79,24 @@ def run_ga(
             best = (top_c, top_e)
         return scored
 
-    population = init_population(problem, cfg, rng)
+    population = [prepare(c) for c in init_population(problem, cfg, rng)]
     scored = record(population)
 
+    policy = cfg.termination
     for _ in range(cfg.generations):
+        if policy is not None:
+            decision = policy.decide(history)
+            if decision.should_stop:
+                stopped_reason = decision.reason
+                break
         fitness = {c: e.total for c, e in scored}
-        new_population: list[Chromosome] = [
-            c for c, _ in scored[: cfg.elite_count]
-        ]
+        new_population: list[Chromosome] = [c for c, _ in scored[: cfg.elite_count]]
         while len(new_population) < cfg.population_size:
             parent_a = tournament_selection(population, fitness, cfg.tournament_size, rng)
             parent_b = tournament_selection(population, fitness, cfg.tournament_size, rng)
             child = uniform_crossover(parent_a, parent_b, cfg.crossover_rate, rng)
             child = mutate(child, len(problem.resources), cfg, rng)
+            child = prepare(child)
             new_population.append(child)
         population = new_population[: cfg.population_size]
         scored = record(population)
@@ -96,4 +111,5 @@ def run_ga(
         population_size=cfg.population_size,
         seed=cfg.seed,
         history=tuple(history),
+        stopped_reason=stopped_reason,
     )

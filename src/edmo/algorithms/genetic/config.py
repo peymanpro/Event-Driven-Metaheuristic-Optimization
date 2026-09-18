@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from edmo.algorithms.genetic.termination import TerminationPolicy
+
 
 @dataclass(frozen=True, slots=True)
 class GAConfig:
@@ -10,7 +12,8 @@ class GAConfig:
     All rates are per-gene, applied independently. ``elite_count`` is the
     number of best individuals copied unchanged into the next generation.
     ``mutation_time_sigma`` is the standard deviation of the Gaussian used to
-    perturb start times.
+    perturb start times. When ``apply_repair`` is True, release-time and
+    precedence constraints are repaired on each new child before evaluation.
     """
 
     population_size: int = 50
@@ -22,6 +25,8 @@ class GAConfig:
     start_time_horizon: float = 100.0
     mutation_time_sigma: float = 5.0
     seed: int | None = None
+    apply_repair: bool = True
+    termination: TerminationPolicy | None = None
 
     def __post_init__(self) -> None:
         if self.population_size < 1:
