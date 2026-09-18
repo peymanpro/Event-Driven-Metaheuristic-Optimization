@@ -29,6 +29,12 @@ class Schedule:
             self, "completion", MappingProxyType(dict(self.completion))
         )
 
+    def __reduce__(self) -> tuple[object, tuple[object, ...]]:
+        return (
+            Schedule,
+            (dict(self.resource_id), dict(self.start), dict(self.completion)),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Violation:

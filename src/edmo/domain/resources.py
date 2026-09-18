@@ -29,3 +29,6 @@ class Resource:
             if value < 0.0:
                 raise ValueError(f"capacity[{name!r}] must be non-negative")
         object.__setattr__(self, "capacity", MappingProxyType(dict(self.capacity)))
+
+    def __reduce__(self) -> tuple[object, tuple[object, ...]]:
+        return (Resource, (self.id, dict(self.capacity), self.speed))

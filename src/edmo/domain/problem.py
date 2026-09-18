@@ -56,6 +56,18 @@ class Problem:
         object.__setattr__(self, "jobs", tuple(self.jobs))
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
+    def __reduce__(self) -> tuple[object, tuple[object, ...]]:
+        return (
+            Problem,
+            (
+                self.id,
+                self.resources,
+                self.jobs,
+                self.version,
+                dict(self.metadata),
+            ),
+        )
+
     def resource_by_id(self, resource_id: str) -> Resource:
         for r in self.resources:
             if r.id == resource_id:

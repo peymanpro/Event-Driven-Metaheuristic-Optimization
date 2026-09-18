@@ -44,6 +44,9 @@ class Solution:
             MappingProxyType(dict(self.assignments)),
         )
 
+    def __reduce__(self) -> tuple[object, tuple[object, ...]]:
+        return (Solution, (dict(self.assignments),))
+
     def __contains__(self, job_id: object) -> bool:
         return job_id in self.assignments
 

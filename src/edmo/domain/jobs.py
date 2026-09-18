@@ -42,3 +42,17 @@ class Job:
         object.__setattr__(self, "demand", MappingProxyType(dict(self.demand)))
         if not isinstance(self.predecessors, frozenset):
             object.__setattr__(self, "predecessors", frozenset(self.predecessors))
+
+    def __reduce__(self) -> tuple[object, tuple[object, ...]]:
+        return (
+            Job,
+            (
+                self.id,
+                self.processing_time,
+                dict(self.demand),
+                self.release_time,
+                self.deadline,
+                self.weight,
+                self.predecessors,
+            ),
+        )
