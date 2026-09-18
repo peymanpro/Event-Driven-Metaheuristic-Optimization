@@ -6,7 +6,7 @@ from edmo.domain.problem import Problem
 from edmo.domain.solution import Assignment, Solution
 
 
-@dataclass(frozen=True, slots=True, eq=False)
+@dataclass(frozen=True, slots=True)
 class Chromosome:
     """Fixed-length gene vector for the genetic algorithm.
 
