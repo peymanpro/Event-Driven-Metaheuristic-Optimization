@@ -23,4 +23,6 @@ payload). The domain layer owns the event model; infrastructure adapters
 - The algorithmic core (GA, DE, state) stays free of transport concerns.
 - Events are replayable and analyzable offline via the EventLog JSONL.
 - A new transport can be added without touching domain or algorithm code.
-- We accept the cost of serialization boundaries and idempotency handling.
+- We accept the cost of serialization boundaries and per-process idempotency
+  filtering. Durable, cross-restart exactly-once delivery is explicitly out
+  of scope; handlers that need it must persist their own state.

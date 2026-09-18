@@ -13,8 +13,12 @@ class InMemoryEventBus:
     """Simple synchronous event bus.
 
     Handlers are keyed by exact ``event_type``. The bus is deterministic:
-    handlers run in registration order. The same ``event_id`` is delivered
-    at most once per subscription (idempotency at the bus level).
+    handlers run in registration order.
+
+    Duplicate ``event_id`` values are dropped per subscription, but only
+    within the lifetime of this bus instance. This is an in-process filter,
+    not durable exactly-once delivery: recreating the bus resets the filter,
+    so callers that need cross-restart dedup must persist their own state.
     """
 
     _handlers: dict[str, list[Handler]] = field(default_factory=dict)

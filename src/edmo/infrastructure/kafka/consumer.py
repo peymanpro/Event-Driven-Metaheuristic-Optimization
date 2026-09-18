@@ -23,11 +23,23 @@ class KafkaConsumerLike(Protocol):
 
 
 class KafkaEventConsumer:
-    """Consume Kafka messages into :class:`DomainEvent` with idempotency.
+    """Consume Kafka messages into :class:`DomainEvent`.
 
     ``group_id`` is required so consumer offsets are tracked per logical
-    consumer. Duplicate ``event_id`` values per group are ignored, providing
-    at-least-once to effectively-once delivery for downstream handlers.
+    consumer.
+
+    Delivery semantics:
+
+    - Kafka transport itself is at-least-once: a message may be redelivered
+      after a crash or rebalance.
+    - This consumer keeps an in-process ``event_id`` filter that drops
+      duplicates observed during the lifetime of this consumer instance.
+    - That filter is not durable: restarting the process loses the set, so a
+      redelivered event can be processed again after restart.
+    - Downstream handlers that must be exactly-once under redelivery must be
+      idempotent themselves or persist dedup state durably. This project does
+      not implement durable dedup; the in-process filter is a best-effort
+      optimization for steady-state operation.
     """
 
     def __init__(

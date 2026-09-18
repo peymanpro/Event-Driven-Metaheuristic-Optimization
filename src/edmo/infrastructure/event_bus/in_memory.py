@@ -12,8 +12,11 @@ class InMemoryTransport:
 
     The transport is thread-safe. Each topic has a FIFO queue. Multiple
     subscribers can read the same topic; each subscriber has its own queue
-    view, so events are fanned out rather than load-balanced. Idempotency at
-    the transport level is per (topic, subscriber, event_id).
+    view, so events are fanned out rather than load-balanced.
+
+    Duplicate ``event_id`` values are dropped per (topic, subscriber) within
+    the lifetime of this transport instance. This is an in-process filter
+    and does not provide durable exactly-once delivery.
     """
 
     def __init__(self) -> None:
