@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "edmo"
+version = "0.1.0"
+description = "Event-driven metaheuristic optimization for dynamic resource allocation and scheduling."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Peyman Salimi" }]
+dependencies = [
+    "numpy>=2.0,<3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Repository = "https://github.com/peymanpro/Event-Driven-Metaheuristic-Optimization"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/edmo"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra -q"
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "N", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+mypy_path = "src"
+warn_unused_ignores = true
+warn_redundant_casts = true
+show_error_codes = true
