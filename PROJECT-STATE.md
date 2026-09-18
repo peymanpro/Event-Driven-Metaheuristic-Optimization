@@ -12,8 +12,8 @@ Handoff snapshot. Update at the end of every milestone.
 
 ## Current phase
 
-Phase 6 - Stateful / Warm-Start Optimization (completed).
-Ready to start Phase 7 (Event-Driven Architecture, domain events first).
+Phase 7 - Event-Driven Architecture (completed).
+Ready to start Phase 8 (Parallel Fitness Evaluation, local first).
 
 ## Completed
 
@@ -22,14 +22,20 @@ Ready to start Phase 7 (Event-Driven Architecture, domain events first).
 - Phase 2 genetic algorithm
 - Phase 3 search quality & constraint handling
 - Phase 4 differential evolution + common OptimizerResult
-- Phase 5 dynamic optimization (changes, impact analysis)
-- Phase 6 stateful / warm-start:
-  - GAState (population, best, generation, history, problem_version, rng)
-  - adapt_chromosome and adapt_state for structural changes
-  - run_ga_stateful supporting warm start and target_total early stop
-  - restart_vs_warm_start benchmark with RecoveryMetrics
+- Phase 5 dynamic optimization
+- Phase 6 stateful / warm-start + restart vs warm-start benchmark
+- Phase 7 event-driven architecture:
+  - DomainEvent envelope (UUID, timestamp, version, payload)
+  - InMemoryEventBus with idempotency per event_id
+  - EventPublisher / EventSubscriber protocols
+  - Topics module (optimization-events, optimization-results)
+  - JSON serialization (encode_event / decode_event)
+  - InMemoryTransport with fan-out and per-subscriber dedup
+  - Kafka adapter: RetryPolicy, KafkaEventPublisher, KafkaEventConsumer
+  - KafkaConfig + factory with lazy import of kafka-python
+  - Optional `kafka` extra in pyproject.toml
 
-Tests: 223 passing.
+Tests: 278 passing.
 
 ## Local commands
 
@@ -47,6 +53,6 @@ Tests: 223 passing.
 
 ## Open items
 
-- Phase 7 (domain events, in-memory bus, Kafka adapter) not started
-- No parallel execution yet
-- No persistence/experiment pipeline yet
+- Phase 8 (parallel fitness evaluation) not started
+- Phase 9 (experiment data pipeline) not started
+- Phase 10 (final benchmark + docs) not started
