@@ -12,8 +12,8 @@ Handoff snapshot. Update at the end of every milestone.
 
 ## Current phase
 
-Phase 7 - Event-Driven Architecture (completed).
-Ready to start Phase 8 (Parallel Fitness Evaluation, local first).
+Phase 8 - Parallel Fitness Evaluation (completed).
+Ready to start Phase 9 (Experiment Data Pipeline).
 
 ## Completed
 
@@ -24,18 +24,17 @@ Ready to start Phase 8 (Parallel Fitness Evaluation, local first).
 - Phase 4 differential evolution + common OptimizerResult
 - Phase 5 dynamic optimization
 - Phase 6 stateful / warm-start + restart vs warm-start benchmark
-- Phase 7 event-driven architecture:
-  - DomainEvent envelope (UUID, timestamp, version, payload)
-  - InMemoryEventBus with idempotency per event_id
-  - EventPublisher / EventSubscriber protocols
-  - Topics module (optimization-events, optimization-results)
-  - JSON serialization (encode_event / decode_event)
-  - InMemoryTransport with fan-out and per-subscriber dedup
-  - Kafka adapter: RetryPolicy, KafkaEventPublisher, KafkaEventConsumer
-  - KafkaConfig + factory with lazy import of kafka-python
-  - Optional `kafka` extra in pyproject.toml
+- Phase 7 event-driven architecture (DomainEvent, bus, transport, Kafka adapter)
+- Phase 8 parallel fitness evaluation:
+  - FitnessJob and FitnessResult value types
+  - WorkerError / JobTimeoutError / JobExecutionError
+  - WorkerConfig (process or thread, max_workers, timeout, retries)
+  - evaluate_job (pure, picklable, error-capturing)
+  - submit_all with retries, order preservation, and per-job timeouts
+  - Pickle support for Resource / Job / Problem / Solution / Schedule
+  - sequential_vs_parallel benchmark with TimingResult and speedup
 
-Tests: 278 passing.
+Tests: 292 passing.
 
 ## Local commands
 
@@ -53,6 +52,6 @@ Tests: 278 passing.
 
 ## Open items
 
-- Phase 8 (parallel fitness evaluation) not started
 - Phase 9 (experiment data pipeline) not started
-- Phase 10 (final benchmark + docs) not started
+- Phase 10 (final benchmark + docs + ADRs) not started
+- Kafka-based workers not added (no justified need yet)
