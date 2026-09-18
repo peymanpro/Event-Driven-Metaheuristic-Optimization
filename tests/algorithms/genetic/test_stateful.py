@@ -129,3 +129,74 @@ def test_target_total_stops_early() -> None:
         target_total=1.0e9,
     )
     assert r.stopped_reason == "target_reached"
+
+
+def test_fresh_run_generation_equals_steps_performed() -> None:
+    cfg = GAConfig(population_size=10, generations=5, seed=1)
+    state, result = run_ga_stateful(_problem(), None, cfg)
+    assert state.generation == 5
+    assert result.generations == 5
+    # history includes generation 0 plus 5 new generations
+    assert len(state.history) == 6
+
+
+def test_fresh_run_zero_generations() -> None:
+    cfg = GAConfig(population_size=10, generations=0, seed=1)
+    state, result = run_ga_stateful(_problem(), None, cfg)
+    assert state.generation == 0
+    assert result.generations == 0
+    assert len(state.history) == 1
+
+
+def test_warm_start_continues_generation_correctly() -> None:
+    cfg = GAConfig(population_size=10, generations=5, seed=1)
+    state, _ = run_ga_stateful(_problem(), None, cfg)
+    assert state.generation == 5
+
+    state2, result2 = run_ga_stateful(_problem(), state, cfg)
+    # 5 additional steps -> generation 10.
+    assert state2.generation == 10
+    assert result2.generations == 5
+    # Warm start does not re-record the inherited initial population.
+    assert len(state2.history) == len(state.history) + 5
+
+
+def test_two_consecutive_warm_starts_no_double_counting() -> None:
+    cfg = GAConfig(population_size=10, generations=10, seed=2)
+    s0, _ = run_ga_stateful(_problem(), None, cfg)
+    assert s0.generation == 10
+
+    s1, r1 = run_ga_stateful(_problem(), s0, cfg)
+    assert s1.generation == 20
+    assert r1.generations == 10
+
+    s2, r2 = run_ga_stateful(_problem(), s1, cfg)
+    assert s2.generation == 30
+    assert r2.generations == 10
+
+    # History length: 1 (initial) + 10 + 10 + 10 = 31.
+    assert len(s2.history) == 31
+
+
+def test_warm_start_history_extends_by_exact_number_of_steps() -> None:
+    cfg_a = GAConfig(population_size=8, generations=4, seed=3)
+    state_a, _ = run_ga_stateful(_problem(), None, cfg_a)
+
+    cfg_b = GAConfig(population_size=8, generations=6, seed=3)
+    state_b, _ = run_ga_stateful(_problem(), state_a, cfg_b)
+
+    assert state_b.generation == 4 + 6
+    # initial record + 4 + 6
+    assert len(state_b.history) == 1 + 4 + 6
+
+
+def test_warm_start_zero_generations_preserves_generation() -> None:
+    cfg = GAConfig(population_size=8, generations=3, seed=4)
+    state, _ = run_ga_stateful(_problem(), None, cfg)
+    assert state.generation == 3
+
+    cfg0 = GAConfig(population_size=8, generations=0, seed=4)
+    state2, result2 = run_ga_stateful(_problem(), state, cfg0)
+    assert state2.generation == 3
+    assert result2.generations == 0
+    assert len(state2.history) == len(state.history)

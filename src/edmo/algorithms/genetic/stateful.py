@@ -104,10 +104,21 @@ def run_ga_stateful(
 ) -> tuple[GAState, GAResult]:
     """Run GA, optionally warm-starting from ``state``.
 
-    If ``state`` is provided and its ``problem_version`` matches the problem,
-    evolution continues from the existing population. If versions differ, the
-    state is adapted to the new problem structure first. A fresh run is
-    triggered when ``state`` is ``None``.
+    Semantics of ``GAState.generation``:
+
+    - It is the number of the last completed generation.
+    - Generation 0 is the freshly evaluated initial population; no evolution
+      step has been applied yet.
+    - A run of ``N`` evolution steps increments ``generation`` by exactly
+      ``N`` (never by the total length of history).
+    - When warm-starting from a state, the inherited population is NOT
+      re-recorded into history; only newly completed generations are appended.
+    - ``GAResult.generations`` reports the number of evolution steps performed
+      in this call (not the size of the cumulative history).
+
+    A fresh run is triggered when ``state`` is ``None``. If ``state`` is given
+    but its ``problem_version`` differs from ``problem.version``, a
+    ``ValueError`` is raised; callers must run :func:`adapt_state` first.
 
     ``target_total`` stops evolution early once the best total reaches it,
     which is used by recovery benchmarks.
@@ -143,9 +154,6 @@ def run_ga_stateful(
         problem_version = problem.version
     else:
         if state.problem_version != problem.version:
-            # Reconstruct the "before" problem from the state's perspective is
-            # not possible; the caller must have already produced an adapted
-            # state via adapt_state. Refuse silently wrong shapes.
             raise ValueError(
                 "state.problem_version does not match problem.version; "
                 "call adapt_state before run_ga_stateful"
@@ -166,10 +174,19 @@ def run_ga_stateful(
             best = (top_c, top_e)
         return scored
 
-    scored = record(population)
+    if state is None:
+        # Fresh run: the initial population is generation 0 and must be
+        # recorded exactly once.
+        scored = record(population)
+    else:
+        # Warm start: the inherited population already has an entry in
+        # history, so we only score it without recording a duplicate.
+        scored = [(c, evaluate_chromosome(c)) for c in population]
+        scored.sort(key=lambda ce: ce[1].total)
 
     policy: TerminationPolicy | None = cfg.termination
     stopped_reason = "max_generations"
+    new_generations = 0
     for _ in range(cfg.generations):
         if target_total is not None and history[-1] <= target_total:
             stopped_reason = "target_reached"
@@ -190,6 +207,7 @@ def run_ga_stateful(
             new_population.append(child)
         population = new_population[: cfg.population_size]
         scored = record(population)
+        new_generations += 1
 
     assert best is not None
     best_c, best_e = best
@@ -197,7 +215,7 @@ def run_ga_stateful(
         population=tuple(population),
         best_chromosome=best_c,
         best_evaluation=best_e,
-        generation=generation + (len(history) - 1),
+        generation=generation + new_generations,
         history=tuple(history),
         problem_version=problem_version,
         rng=rng,
@@ -206,7 +224,7 @@ def run_ga_stateful(
         best_chromosome=best_c,
         best_solution=best_c.to_solution(problem),
         best_evaluation=best_e,
-        generations=len(history) - 1,
+        generations=new_generations,
         population_size=cfg.population_size,
         seed=cfg.seed,
         history=tuple(history),
