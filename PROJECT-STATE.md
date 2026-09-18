@@ -12,31 +12,26 @@ Handoff snapshot. Update at the end of every milestone.
 
 ## Current phase
 
-Phase 3 - Search Quality & Constraint Handling (completed).
-Ready to start Phase 4 (Differential Evolution).
+Phase 4 - Differential Evolution (completed).
+Ready to start Phase 5 (Dynamic Optimization: f_t, g_{i,t}).
 
 ## Completed
 
 - Phase 0 foundation (packaging, pytest, ruff, mypy, CI, docs)
-- Phase 1 static optimization core:
-  - Problem, Resource, Job, Solution, Assignment
-  - Objective (weighted completion + makespan)
-  - Hard constraints (missing, unknown resource, release, precedence,
-    deadline, capacity)
-  - Penalty model with configurable weights
-  - Deterministic Random Search baseline
-- Phase 2 genetic algorithm:
-  - Chromosome (value object), operators (init, tournament, uniform crossover,
-    gaussian mutation), elitism, generation loop, seed-based reproducibility
-- Phase 3 search quality & constraint handling:
-  - Repair operators (release time, precedence via topological order)
-  - Diversity metric, convergence span, stagnation length
-  - Termination policy (max_generations, stagnation, convergence)
-  - Repair and termination wired into GA optimizer
-  - Reproducible random problem generator
-  - GA vs Random Search comparison benchmark
+- Phase 1 static optimization core (problem, solution, evaluation, penalty,
+  random search baseline)
+- Phase 2 genetic algorithm (chromosome, operators, elitism, seed-based
+  reproducibility)
+- Phase 3 search quality & constraint handling (repair operators, diversity,
+  convergence, stagnation, termination policies, GA vs Random Search benchmark)
+- Phase 4 differential evolution:
+  - Vector coding with VectorBounds and decode/clip
+  - DE/rand/1/bin operators
+  - Optimizer with repair and termination reuse
+  - Common OptimizerResult interface shared by GA/DE
+  - Reproducible GA vs DE benchmark
 
-Tests: 134 passing across domain, algorithms, benchmarks.
+Tests: 173 passing.
 
 ## Local commands
 
@@ -54,6 +49,6 @@ Tests: 134 passing across domain, algorithms, benchmarks.
 
 ## Open items
 
-- Phase 4 (Differential Evolution) not started
+- Phase 5 (Dynamic optimization f_t) not started
 - No events, no Kafka, no parallel execution yet
-- Dynamic optimization (f_t) not implemented
+- No warm-start or restart strategies yet
