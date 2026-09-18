@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 
 
-@dataclass(frozen=True, slots=True, eq=False)
+@dataclass(frozen=True, slots=True)
 class Assignment:
     """Placement of one job on one resource at one start time."""
 
