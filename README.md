@@ -172,6 +172,12 @@ Deliberately out of scope unless a concrete need is demonstrated:
 
 They are independent implementations, useful for exploring different approaches to optimization and numerical computation.
 
+## Automated releases
+
+The GitHub Release workflow reads the package version from `pyproject.toml`. Before publishing it runs Ruff, mypy, pytest, and a Python source-distribution/wheel build; a successful release includes the built distributions and GitHub-generated release notes.
+
+For the next release, increment `[project].version` to a new `MAJOR.MINOR.PATCH` version and push the change to `main`, or push a matching `vMAJOR.MINOR.PATCH` tag. The workflow does not overwrite an existing version tag or duplicate an existing release.
+
 ## License
 
 MIT (to be finalized).
