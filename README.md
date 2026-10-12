@@ -165,6 +165,13 @@ Deliberately out of scope unless a concrete need is demonstrated:
 - `docs/FAILURE-MODES.md` - failure modes and handling.
 - `docs/adr/` - architecture decision records.
 
+## Related mathematical implementations
+
+- [Convex Quadratic Programming Solver](https://github.com/peymanpro/Convex-Quadratic-Programming-Solver) implements a mathematical-programming approach for convex quadratic objectives and explicit constraints.
+- [Robust Statistical Learning](https://github.com/peymanpro/Robust-Statistical-Learning) investigates conditioning, numerical reliability, and validation of learning algorithms.
+
+They are independent implementations, useful for exploring different approaches to optimization and numerical computation.
+
 ## License
 
 MIT (to be finalized).
